@@ -49,3 +49,14 @@ desktop.ini
 .idea/
 *.sublime-project
 *.sublime-workspace
+
+# Private keys and credentials
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+
+# Local databases and logs
+*.log
+*.sqlite3

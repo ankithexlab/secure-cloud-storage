@@ -16,9 +16,12 @@ import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import UploadPage from './pages/UploadPage';
 import FilesPage from './pages/FilesPage';
+import SharedPage from './pages/SharedPage';
+import PrivacyPage from './pages/PrivacyPage';
+import AuditLogsPage from './pages/AuditLogsPage';
 
 // API
-import { getFiles, healthCheck } from './services/api';
+import { getFiles, healthCheck, logoutRequest } from './services/api';
 import { API_BASE_URL } from './api';
 
 
@@ -26,6 +29,9 @@ const PAGE_TITLES = {
   dashboard: 'Dashboard',
   upload: 'Secure Upload',
   files: 'My Files',
+  shared: 'Shared With Me',
+  privacy: 'Privacy & PII Protection',
+  audit: 'Security Monitoring & Audit',
 };
 
 function App() {
@@ -127,7 +133,12 @@ function App() {
     localStorage.setItem('sc_user', JSON.stringify(u));
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Attempt server-side token revocation (best-effort; don't block on failure)
+    const currentToken = token;
+    if (currentToken) {
+      logoutRequest(currentToken).catch(() => {});
+    }
     setIsLoggedIn(false);
     setToken('');
     setUser(null);
@@ -190,6 +201,7 @@ function App() {
           <UploadPage
             token={token}
             onUploadComplete={refreshFiles}
+            onSessionExpired={handleLogout}
           />
         );
       case 'files':
@@ -198,8 +210,34 @@ function App() {
             files={files}
             loading={filesLoading}
             token={token}
+            user={user}
             onRefresh={refreshFiles}
             setActivePage={setActivePage}
+            onSessionExpired={handleLogout}
+          />
+        );
+      case 'shared':
+        return (
+          <SharedPage
+            token={token}
+            user={user}
+            onSessionExpired={handleLogout}
+          />
+        );
+      case 'privacy':
+        return (
+          <PrivacyPage
+            token={token}
+            onRefreshFiles={refreshFiles}
+            setActivePage={setActivePage}
+            onSessionExpired={handleLogout}
+          />
+        );
+      case 'audit':
+        return (
+          <AuditLogsPage
+            token={token}
+            onSessionExpired={handleLogout}
           />
         );
       case 'dashboard':
@@ -208,6 +246,7 @@ function App() {
           <DashboardPage
             stats={stats}
             files={files}
+            loading={filesLoading}
             setActivePage={setActivePage}
           />
         );
@@ -224,12 +263,15 @@ function App() {
           onLogout={handleLogout}
           isOpen={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
+          user={user}
         />
         <div className="flex-1 flex flex-col min-h-screen lg:ml-0">
           <Navbar
             user={user}
+            token={token}
             pageTitle={PAGE_TITLES[activePage] || 'Dashboard'}
             onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
+            onNavigate={setActivePage}
           />
           <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto scrollbar-cyber">
             {renderPage()}

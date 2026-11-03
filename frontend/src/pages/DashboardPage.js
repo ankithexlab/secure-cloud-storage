@@ -1,7 +1,7 @@
 // =============================================================================
 // pages/DashboardPage.js — Overview with stats and recent activity
 // =============================================================================
-import { Files, HardDrive, Upload, ShieldCheck, TrendingUp, Clock } from 'lucide-react';
+import { Files, HardDrive, Upload, ShieldCheck, TrendingUp, Clock, Loader2, KeyRound, Layers, BadgeCheck, Shield, Link } from 'lucide-react';
 
 function formatBytes(bytes) {
   if (!bytes || bytes === 0) return '0 B';
@@ -9,6 +9,16 @@ function formatBytes(bytes) {
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return 'Recently';
+  try {
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? 'Recently' : d.toLocaleDateString();
+  } catch {
+    return 'Recently';
+  }
 }
 
 const STAT_CARDS = [
@@ -19,7 +29,7 @@ const STAT_CARDS = [
     color: 'from-cyber-accent to-cyan-400',
     iconBg: 'bg-cyber-accent/10',
     iconColor: 'text-cyber-accent',
-    getValue: (s) => s.total_files ?? 0,
+    getValue: (s) => s?.total_files ?? 0,
   },
   {
     id: 'storage',
@@ -28,7 +38,7 @@ const STAT_CARDS = [
     color: 'from-cyber-violet to-purple-400',
     iconBg: 'bg-cyber-violet/10',
     iconColor: 'text-cyber-violet',
-    getValue: (s) => formatBytes(s.total_size ?? 0),
+    getValue: (s) => formatBytes(s?.total_size ?? 0),
   },
   {
     id: 'uploads',
@@ -37,7 +47,7 @@ const STAT_CARDS = [
     color: 'from-cyber-green to-emerald-400',
     iconBg: 'bg-cyber-green/10',
     iconColor: 'text-cyber-green',
-    getValue: (s) => s.total_files ?? 0,
+    getValue: (s) => s?.total_files ?? 0,
   },
   {
     id: 'security',
@@ -50,7 +60,7 @@ const STAT_CARDS = [
   },
 ];
 
-export default function DashboardPage({ stats, files, setActivePage }) {
+export default function DashboardPage({ stats, files, setActivePage, loading = false }) {
   const recentFiles = (files || []).slice(0, 5);
 
   return (
@@ -81,7 +91,11 @@ export default function DashboardPage({ stats, files, setActivePage }) {
                 <p className="text-xs text-cyber-muted font-medium uppercase tracking-wider mb-2">
                   {label}
                 </p>
-                <p className="text-2xl font-bold text-white">{getValue(stats)}</p>
+                {loading && (!files || files.length === 0) ? (
+                  <div className="h-8 w-20 bg-white/10 rounded-lg animate-pulse my-0.5" />
+                ) : (
+                  <p className="text-2xl font-bold text-white">{getValue(stats)}</p>
+                )}
               </div>
               <div className={`w-11 h-11 rounded-xl ${iconBg} flex items-center justify-center`}>
                 <Icon className={`w-5 h-5 ${iconColor}`} />
@@ -100,19 +114,96 @@ export default function DashboardPage({ stats, files, setActivePage }) {
             <h3 className="text-base font-semibold text-white">Security Status</h3>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-0">
             {[
-              { label: 'Encryption', value: 'AES-256-GCM', color: 'bg-cyber-green' },
-              { label: 'Key Derivation', value: 'PBKDF2 · 100k iter', color: 'bg-cyber-accent' },
-              { label: 'Architecture', value: 'Zero-Knowledge', color: 'bg-cyber-violet' },
-              { label: 'Storage', value: 'S3 · Encrypted', color: 'bg-amber-400' },
-            ].map(({ label, value, color }) => (
-              <div key={label} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
-                <div className="flex items-center gap-3">
-                  <span className={`w-2 h-2 rounded-full ${color}`} />
-                  <span className="text-sm text-cyber-muted">{label}</span>
+              {
+                label: 'Encryption',
+                value: 'AES-256-GCM',
+                detail: 'AUTHENTICATED',
+                dotColor: 'bg-cyber-green',
+                icon: ShieldCheck,
+                iconColor: 'text-cyber-green',
+              },
+              {
+                label: 'Key Derivation',
+                value: 'PBKDF2-SHA256',
+                detail: '100k iterations',
+                dotColor: 'bg-cyber-accent',
+                icon: KeyRound,
+                iconColor: 'text-cyber-accent',
+              },
+              {
+                label: 'Architecture',
+                value: 'Zero-Knowledge',
+                detail: 'CLIENT-SIDE ONLY',
+                dotColor: 'bg-cyber-violet',
+                icon: Shield,
+                iconColor: 'text-cyber-violet',
+              },
+              {
+                label: 'Storage',
+                value: 'Backblaze B2 · Private',
+                detail: 'PRIVATE BUCKET',
+                dotColor: 'bg-amber-400',
+                icon: HardDrive,
+                iconColor: 'text-amber-400',
+              },
+              {
+                label: 'Public-Key Cryptography',
+                value: 'RSA-OAEP · 2048-bit',
+                detail: 'KEY WRAPPING',
+                dotColor: 'bg-cyber-green',
+                icon: KeyRound,
+                iconColor: 'text-cyber-green',
+              },
+              {
+                label: 'Hybrid Encryption',
+                value: 'AES-256 + RSA-OAEP',
+                detail: 'ENVELOPE ENC.',
+                dotColor: 'bg-cyber-accent',
+                icon: Layers,
+                iconColor: 'text-cyber-accent',
+              },
+              {
+                label: 'Integrity Verification',
+                value: 'SHA-256',
+                detail: 'PER-FILE HASH',
+                dotColor: 'bg-cyber-violet',
+                icon: BadgeCheck,
+                iconColor: 'text-cyber-violet',
+              },
+              {
+                label: 'Authentication',
+                value: 'JWT + bcrypt',
+                detail: 'STATELESS',
+                dotColor: 'bg-amber-400',
+                icon: Shield,
+                iconColor: 'text-amber-400',
+              },
+              {
+                label: 'Audit Security',
+                value: 'SHA-256 Hash Chain',
+                detail: 'TAMPER-PROOF',
+                dotColor: 'bg-cyber-green',
+                icon: Link,
+                iconColor: 'text-cyber-green',
+              },
+            ].map(({ label, value, detail, dotColor, icon: Icon, iconColor }) => (
+              <div
+                key={label}
+                className="flex items-center justify-between py-2.5 border-b border-white/[0.05] last:border-0 group"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotColor}`} />
+                  <span className="text-xs text-cyber-muted truncate">{label}</span>
                 </div>
-                <span className="text-sm font-medium text-white font-mono">{value}</span>
+                <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                  <span className="text-xs font-medium text-white font-mono">{value}</span>
+                  <span className={`hidden sm:inline-flex text-[9px] font-bold font-mono px-1.5 py-0.5 rounded
+                                    bg-white/[0.05] border border-white/[0.08] ${iconColor} tracking-wider`}>
+                    {detail}
+                  </span>
+                </div>
               </div>
             ))}
           </div>
@@ -135,7 +226,12 @@ export default function DashboardPage({ stats, files, setActivePage }) {
             )}
           </div>
 
-          {recentFiles.length === 0 ? (
+          {loading && (!files || files.length === 0) ? (
+            <div className="flex flex-col items-center justify-center py-10">
+              <Loader2 className="w-6 h-6 text-cyber-accent animate-spin mb-2" />
+              <p className="text-xs text-cyber-muted">Loading vault activity...</p>
+            </div>
+          ) : recentFiles.length === 0 ? (
             <div className="text-center py-10">
               <Files className="w-12 h-12 text-white/10 mx-auto mb-3" />
               <p className="text-sm text-cyber-muted">No files uploaded yet</p>
@@ -164,7 +260,7 @@ export default function DashboardPage({ stats, files, setActivePage }) {
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-white truncate">{f.filename}</p>
                       <p className="text-[11px] text-cyber-muted">
-                        {formatBytes(f.size)} · {new Date(f.upload_date).toLocaleDateString()}
+                        {formatBytes(f.size)} · {formatDate(f.upload_date)}
                       </p>
                     </div>
                   </div>

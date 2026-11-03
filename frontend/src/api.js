@@ -2,7 +2,9 @@
 // api.js — Shared API client primitives
 // =============================================================================
 
-const DEFAULT_BASE_URL = 'https://secure-cloud-based-file-storage-system.onrender.com/api';
+// Safe local development default and relative production fallback (no third-party Render URL)
+const SAFE_LOCAL_API_URL = 'http://127.0.0.1:5000/api';
+const DEFAULT_BASE_URL = process.env.NODE_ENV === 'production' ? '/api' : SAFE_LOCAL_API_URL;
 
 const fromEnv = (process.env.REACT_APP_API_URL || '').trim();
 export const API_BASE_URL = (fromEnv || DEFAULT_BASE_URL).replace(/\/+$/, '');

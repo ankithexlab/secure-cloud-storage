@@ -9,15 +9,24 @@ import {
   LogOut,
   X,
   Cloud,
+  Share2,
+  ShieldAlert,
+  ShieldCheck,
 } from 'lucide-react';
 
-const NAV_ITEMS = [
+const BASE_NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard',   icon: LayoutDashboard },
   { id: 'upload',    label: 'Upload',      icon: Upload },
   { id: 'files',     label: 'My Files',    icon: FolderOpen },
+  { id: 'shared',    label: 'Shared',      icon: Share2 },
+  { id: 'privacy',   label: 'Privacy & PII', icon: ShieldAlert },
 ];
 
-export default function Sidebar({ activePage, setActivePage, onLogout, isOpen, onClose }) {
+export default function Sidebar({ activePage, setActivePage, onLogout, isOpen, onClose, user }) {
+  const isAdmin = Boolean(user?.is_admin || user?.role === 'admin');
+  const navItems = isAdmin
+    ? [...BASE_NAV_ITEMS, { id: 'audit', label: 'Security & Audit', icon: ShieldCheck }]
+    : BASE_NAV_ITEMS;
   return (
     <>
       {/* Backdrop (mobile) */}
@@ -48,9 +57,9 @@ export default function Sidebar({ activePage, setActivePage, onLogout, isOpen, o
               <Cloud className="w-5 h-5 text-cyber-bg" />
             </div>
             <div>
-              <h1 className="text-lg font-bold gradient-text">SecureCloud</h1>
+              <h1 className="text-lg font-bold gradient-text">CipherVault</h1>
               <p className="text-[10px] text-cyber-muted font-medium tracking-wider uppercase">
-                Zero-Knowledge Vault
+                ZERO-KNOWLEDGE VAULT
               </p>
             </div>
           </div>
@@ -65,7 +74,7 @@ export default function Sidebar({ activePage, setActivePage, onLogout, isOpen, o
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto scrollbar-cyber">
-          {NAV_ITEMS.map(({ id, label, icon: Icon }) => {
+          {navItems.map(({ id, label, icon: Icon }) => {
             const active = activePage === id;
             return (
               <button

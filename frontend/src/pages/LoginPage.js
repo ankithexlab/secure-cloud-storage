@@ -55,19 +55,23 @@ if (password.length < 6) e.password = 'Password too short';
       const fn = isSignup ? registerRequest : loginRequest;
       const res = await fn({ email: email.trim().toLowerCase(), password });
 
-if (!res.ok) {
-      let errorMsg = 'Login failed';
-      if (res.status === 401) {
-        errorMsg = 'Invalid credentials';
-      } else if (res.status === 0 || !res.status) {
-        errorMsg = `Server not reachable at ${API_BASE_URL}`;
-      } else {
-        errorMsg = res.data?.error || res.data?.msg || 'Request failed';
+      if (!res.ok) {
+        let errorMsg = isSignup ? 'Registration failed' : 'Login failed';
+        if (res.status === 401) {
+          errorMsg = 'Invalid email or password';
+        } else if (res.status === 429) {
+          errorMsg = res.data?.msg || 'Too many attempts. Please try again shortly.';
+        } else if (res.status === 409) {
+          errorMsg = res.data?.msg || 'An account with this email already exists.';
+        } else if (res.status === 0 || !res.status) {
+          errorMsg = `Server not reachable at ${API_BASE_URL}`;
+        } else {
+          errorMsg = res.data?.error || res.data?.msg || 'Request failed';
+        }
+        toast.error(errorMsg);
+        setLoading(false);
+        return;
       }
-      toast.error(errorMsg);
-      setLoading(false);
-      return;
-    }
 
       toast.success(isSignup ? 'Account created!' : 'Welcome back!');
       onLogin(res.data);

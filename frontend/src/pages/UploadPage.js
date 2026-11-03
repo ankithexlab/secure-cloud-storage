@@ -1,5 +1,6 @@
 // =============================================================================
 // pages/UploadPage.js — Drag & drop upload with client-side encryption
+// ZERO-KNOWLEDGE: The encryption password never leaves the browser.
 // =============================================================================
 import { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
@@ -9,7 +10,8 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { readFileAsArrayBuffer, encryptFile } from '../services/crypto';
-import { uploadEncryptedFile } from '../services/api';
+import { uploadEncryptedFile, getMyKeys, registerPublicKey } from '../services/api';
+import { generateRsaKeyPair, protectPrivateKey, hybridEncryptFile } from '../services/rsa';
 
 function formatBytes(bytes) {
   if (!bytes) return '0 B';
@@ -22,13 +24,13 @@ function formatBytes(bytes) {
 const STAGES = {
   idle: { label: 'Ready', color: 'text-cyber-muted' },
   reading: { label: 'Reading file...', color: 'text-cyber-accent' },
-  encrypting: { label: 'Encrypting with AES-256...', color: 'text-amber-400' },
+  encrypting: { label: 'Hybrid Encrypting (AES-256 + RSA)...', color: 'text-amber-400' },
   uploading: { label: 'Uploading encrypted data...', color: 'text-cyber-green' },
   done: { label: 'Upload complete!', color: 'text-cyber-green' },
   error: { label: 'Upload failed', color: 'text-cyber-danger' },
 };
 
-export default function UploadPage({ token, onUploadComplete }) {
+export default function UploadPage({ token, onUploadComplete, onSessionExpired }) {
   const [file, setFile] = useState(null);
   const [encPassword, setEncPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -38,7 +40,12 @@ export default function UploadPage({ token, onUploadComplete }) {
   // Dropzone
   const onDrop = useCallback((accepted) => {
     if (accepted.length > 0) {
-      setFile(accepted[0]);
+      const selected = accepted[0];
+      if (selected.size === 0) {
+        toast.error('Cannot upload empty file (0 bytes).');
+        return;
+      }
+      setFile(selected);
       setStage('idle');
       setProgress(0);
     }
@@ -58,10 +65,10 @@ export default function UploadPage({ token, onUploadComplete }) {
   };
 
   // ---------------------------------------------------------------------------
-  // Upload handler
+  // Upload handler — ZERO-KNOWLEDGE: password stays in browser only
   // ---------------------------------------------------------------------------
   const handleUpload = async () => {
-    if (!file || !encPassword || stage !== 'idle') return;
+    if (!file || !encPassword || !['idle', 'error'].includes(stage)) return;
 
     try {
       // 1. Read file
@@ -69,32 +76,79 @@ export default function UploadPage({ token, onUploadComplete }) {
       setProgress(10);
       const buffer = await readFileAsArrayBuffer(file);
 
-      // 2. Encrypt
+      // 2. Encrypt entirely in browser using AES-256-GCM + RSA-OAEP Hybrid Encryption
       setStage('encrypting');
-      setProgress(40);
-      const { ciphertext, iv, salt } = await encryptFile(buffer, encPassword);
+      setProgress(35);
 
-      // 3. Upload
+      let encResult;
+      try {
+        // Check if user already has registered RSA public key
+        let myKeyRes = await getMyKeys(token);
+        let rsaPublicKeyPem = myKeyRes.ok && myKeyRes.data?.public_key ? myKeyRes.data.public_key : null;
+        let rsaFingerprint = myKeyRes.ok && myKeyRes.data?.fingerprint ? myKeyRes.data.fingerprint : null;
+
+        if (!rsaPublicKeyPem) {
+          setProgress(45);
+          // Generate keypair and register with zero-knowledge encrypted backup
+          const keyPair = await generateRsaKeyPair(2048);
+          const protectedPriv = await protectPrivateKey(keyPair.privateKey, encPassword);
+          const regRes = await registerPublicKey({
+            token,
+            publicKey: keyPair.publicKeyPem,
+            fingerprint: keyPair.fingerprint,
+            keyType: 'RSA-OAEP-2048',
+            encryptedPrivateKey: protectedPriv.encrypted_private_key,
+            iv: protectedPriv.iv,
+            salt: protectedPriv.salt,
+            integrityHash: protectedPriv.integrity_hash,
+          });
+          if (regRes.ok) {
+            rsaPublicKeyPem = keyPair.publicKeyPem;
+            rsaFingerprint = keyPair.fingerprint;
+          }
+        }
+
+        if (rsaPublicKeyPem) {
+          setProgress(55);
+          encResult = await hybridEncryptFile(buffer, rsaPublicKeyPem);
+        } else {
+          // Fallback to password-based AES-256-GCM if RSA key registration unavailable
+          encResult = await encryptFile(buffer, encPassword);
+        }
+      } catch (err) {
+        console.warn('Hybrid encryption initialization note:', err);
+        encResult = await encryptFile(buffer, encPassword);
+      }
+
+      // 3. Upload ONLY the encrypted ciphertext + metadata — password is NEVER sent
       setStage('uploading');
-      setProgress(70);
+      setProgress(75);
       const res = await uploadEncryptedFile({
         token,
         filename: file.name,
         mime_type: file.type || 'application/octet-stream',
         size: file.size,
-        encrypted_content: ciphertext,
-        iv,
-        salt,
-        file_password: encPassword,
+        encrypted_content: encResult.ciphertext,
+        iv: encResult.iv,
+        salt: encResult.salt || '',
+        wrapped_key: encResult.wrapped_key || '',
+        key_fingerprint: encResult.key_fingerprint || '',
+        integrity_hash: encResult.integrity_hash || encResult.hash,
+        algorithm: encResult.algorithm || 'AES-GCM-256',
+        kdf: encResult.kdf || 'NONE',
+        iterations: encResult.iterations || 0,
+        version: encResult.version || '2.0',
+        // encPassword intentionally NOT included here
       });
 
       if (!res.ok) {
         setStage('error');
         if (res.status === 401) {
           toast.error('Session expired. Please login again.');
+          onSessionExpired?.();
           return;
         }
-        toast.error(res.data?.msg || 'Upload failed');
+        toast.error(res.data?.msg || res.data?.error || 'Upload failed');
         return;
       }
 
@@ -125,7 +179,7 @@ export default function UploadPage({ token, onUploadComplete }) {
       <div>
         <h1 className="text-2xl font-bold text-white mb-1">Secure Upload</h1>
         <p className="text-sm text-cyber-muted">
-          Files are encrypted in your browser before they leave your device.
+          Files are encrypted in your browser before they leave your device. Your password is never sent to the server.
         </p>
       </div>
 
@@ -192,9 +246,9 @@ export default function UploadPage({ token, onUploadComplete }) {
             <h3 className="text-sm font-semibold text-white">Encryption Password</h3>
           </div>
           <p className="text-xs text-cyber-muted -mt-2">
-            This password is used to derive your AES-256 encryption key.
-            <strong className="text-amber-400"> Remember it</strong> — without it, the file
-            cannot be decrypted.
+            This password derives your AES-256 encryption key locally in your browser.
+            <strong className="text-amber-400"> Remember it</strong> — it is never sent to the server
+            and cannot be recovered if lost.
           </p>
           <div className="relative">
             <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-cyber-muted" />
@@ -202,7 +256,12 @@ export default function UploadPage({ token, onUploadComplete }) {
               type={showPassword ? 'text' : 'password'}
               value={encPassword}
               onChange={(e) => setEncPassword(e.target.value)}
-              placeholder="Enter encryption password"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && encPassword && encPassword.length >= 4 && ['idle', 'error'].includes(stage)) {
+                  handleUpload();
+                }
+              }}
+              placeholder="Enter encryption password (min 4 characters)"
               disabled={isProcessing}
               className="input-field pl-11 pr-12"
             />
@@ -250,14 +309,14 @@ export default function UploadPage({ token, onUploadComplete }) {
       )}
 
       {/* Upload button */}
-      {file && stage === 'idle' && (
+      {file && (stage === 'idle' || stage === 'error') && (
         <button
           onClick={handleUpload}
-          disabled={!encPassword || encPassword.length < 4}
+          disabled={!encPassword || encPassword.length < 4 || isProcessing}
           className="btn-primary w-full py-4 text-base animate-slide-up"
         >
           <Shield className="w-5 h-5" />
-          Encrypt & Upload
+          {stage === 'error' ? 'Retry Encrypt & Upload' : 'Encrypt & Upload'}
         </button>
       )}
 
@@ -269,9 +328,9 @@ export default function UploadPage({ token, onUploadComplete }) {
         </h4>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {[
-            { step: '1', title: 'Derive Key', desc: 'PBKDF2 (100k iterations) creates an AES key from your password' },
-            { step: '2', title: 'Encrypt', desc: 'AES-256-GCM encrypts the file in your browser' },
-            { step: '3', title: 'Upload', desc: 'Only encrypted bytes are sent to the server' },
+            { step: '1', title: 'Derive Key', desc: 'PBKDF2 (100k iterations) creates an AES key from your password — locally only' },
+            { step: '2', title: 'Encrypt', desc: 'AES-256-GCM encrypts the file in your browser; password stays on device' },
+            { step: '3', title: 'Upload', desc: 'Only encrypted ciphertext + IV + salt are sent — no password, no plaintext' },
           ].map(({ step, title, desc }) => (
             <div key={step} className="flex gap-3">
               <span className="w-6 h-6 rounded-lg bg-cyber-accent/10 text-cyber-accent
